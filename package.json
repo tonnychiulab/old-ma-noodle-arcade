@@ -1,0 +1,25 @@
+{
+  "name": "old-ma-noodle-arcade",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "server"
+  ],
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && npm run typecheck -w server && vite build",
+    "test": "tsx --test tests/gameplay.test.ts",
+    "test:multiplayer": "tsx --test tests/multiplayer-smoke.test.ts",
+    "preview": "vite preview --host 0.0.0.0",
+    "server:dev": "npm run dev -w server"
+  },
+  "dependencies": {
+    "@colyseus/sdk": "^0.18.9",
+    "phaser": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5"
+  }
+}
