@@ -180,7 +180,21 @@ export function applyGameAction(current: GameRun, action: GameAction): GameRun {
     case 'alley-skater':
     case 'tile-runner':
     case 'old-ma-adventure': {
-      if (run.gameId === 'alley-delivery') return sequenceAction(run, action, arrows, 6, '送到一桌');
+      if (run.gameId === 'alley-delivery') {
+        ensureSequence(run, arrows, 5);
+        const routeStart = Math.floor(run.cursor / 5) * 5;
+        if (action === run.sequence[run.cursor]) {
+          run.cursor++;
+          if (run.cursor % 5 === 0) { run.tokens++; return result(run, 20, '抵達客人桌邊！下一份餐點上路', 'good'); }
+          return result(run, 4, `路線正確 ${run.cursor % 5}/5，注意下個路口`, 'good');
+        }
+        if (arrows.includes(action)) {
+          run.cursor = routeStart; run.stock = Math.max(0, run.stock - 1);
+          if (run.stock === 0) run.finished = true;
+          return result(run, -2, `走錯巷口，餐點打翻！剩 ${run.stock} 份`, 'miss');
+        }
+        return result(run, 0, '依照路線箭頭穿過巷口送餐', 'info');
+      }
       if (run.gameId === 'rain-dash') {
         if (action !== 'LEFT' && action !== 'RIGHT') return result(run, 0, '積水路滑，左右換巷保持平衡', 'info');
         run.lane = clamp(run.lane + (action === 'LEFT' ? -1 : 1), 0, 2);
@@ -232,7 +246,17 @@ export function applyGameAction(current: GameRun, action: GameAction): GameRun {
       return result(run, 0, '觀察前方障礙，切換到安全路線', 'info');
     }
     case 'hopscotch-king':
-      return sequenceAction(run, action, arrows, 10, '踩中格子');
+      ensureSequence(run, arrows, 4);
+      if (action === run.sequence[run.cursor]) {
+        run.cursor++;
+        if (run.cursor % 4 === 0) { run.tokens++; return result(run, 18, '四格一輪踩完！踏上下一段路線', 'good'); }
+        return result(run, 5, `踩對格子 ${run.cursor % 4}/4，記住本輪路線`, 'good');
+      }
+      if (arrows.includes(action)) {
+        run.cursor = Math.floor(run.cursor / 4) * 4;
+        return result(run, -2, '踩錯一格！這輪四格要重新走', 'miss');
+      }
+      return result(run, 0, '依序踩完四格，錯步要重走本輪', 'info');
     case 'temple-drums': {
       if (!arrows.includes(action)) return result(run, 0, '看鼓點提示，跟著拍子敲擊', 'info');
       const beat = run.phase % 1.2;

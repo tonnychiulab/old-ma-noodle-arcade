@@ -132,10 +132,44 @@ describe('街機玩法規則', () => {
     let braised = make('braised-bites'); let skewer = make('fishball-skewer');
     for (let i = 0; i < 3; i++) { braised = applyGameAction(braised, braised.sequence[i]); skewer = applyGameAction(skewer, skewer.sequence[i]); }
     assert.notEqual(braised.score, skewer.score, '夾滷味訂單與完成魚丸串有不同回饋');
+    let wrongBites = make('braised-bites'); wrongBites = applyGameAction(wrongBites, wrongBites.sequence[0]);
+    wrongBites = applyGameAction(wrongBites, (['A','S','D'] as const).find((key) => key !== wrongBites.sequence[1])!);
+    let wrongSkewer = make('fishball-skewer'); wrongSkewer = applyGameAction(wrongSkewer, wrongSkewer.sequence[0]);
+    wrongSkewer = applyGameAction(wrongSkewer, (['A','S','D'] as const).find((key) => key !== wrongSkewer.sequence[1])!);
+    assert.equal(wrongBites.cursor, 3, '滷味出錯時跳過這張訂單');
+    assert.equal(wrongSkewer.cursor, 0, '魚丸出錯時丟掉目前這串重來');
 
     const rain = make('rain-dash'); rain.obstacle = true; rain.targetLane = 2; rain.lane = 1;
     const car = make('bumper-alley'); car.obstacle = true; car.targetLane = 2; car.lane = 1;
     assert.notEqual(applyGameAction(rain, 'LEFT').score, applyGameAction(car, 'LEFT').score, '避水窪和碰碰車閃避計分不同');
+    const skater = make('alley-skater'); skater.obstacle = true;
+    assert.equal(applyGameAction(skater, 'UP').score, 10, '滑板用跳躍跨路障');
+    const runner = make('tile-runner'); runner.obstacle = true;
+    assert.equal(applyGameAction(runner, 'ACTION').tokens, 1, '跑酷跳缺口會拾取屋瓦');
+    const oldMa = make('old-ma-adventure'); oldMa.obstacle = true;
+    assert.equal(applyGameAction(oldMa, 'ACTION').tokens, 1, '老馬跳箱會拿到食材');
+
+    const ring = make('ring-toss'); ring.aim = ring.target;
+    const perfectRing = applyGameAction(ring, 'ACTION');
+    const planter = make('planter-bowler'); planter.aim = planter.target; planter.heat = 65;
+    const perfectPlanter = applyGameAction(planter, 'ACTION');
+    assert.notEqual(perfectRing.score, perfectPlanter.score, '套圈比角度；投球還要控力道');
+  });
+  it('五款序列/節奏遊戲各自有失誤成本或節拍規則', () => {
+    const hopGame = games.find((item) => item.id === 'hopscotch-king')!;
+    let hop = createGameRun(hopGame, false, 710);
+    hop = applyGameAction(hop, hop.sequence[0]); hop = applyGameAction(hop, hop.sequence[1]);
+    const wrongHop = (['LEFT','UP','RIGHT','DOWN'] as const).find((key) => key !== hop.sequence[2])!;
+    hop = applyGameAction(hop, wrongHop);
+    assert.equal(hop.cursor, 0, '跳格王踩錯要重走當輪四格');
+
+    const deliveryGame = games.find((item) => item.id === 'alley-delivery')!;
+    let delivery = createGameRun(deliveryGame, false, 711);
+    delivery = applyGameAction(delivery, delivery.sequence[0]);
+    const wrongTurn = (['LEFT','UP','RIGHT','DOWN'] as const).find((key) => key !== delivery.sequence[1])!;
+    delivery = applyGameAction(delivery, wrongTurn);
+    assert.equal(delivery.cursor, 0, '送餐錯轉要回到路線起點');
+    assert.equal(delivery.stock, 2, '錯轉會消耗一份餐點');
   });
   it('攤位大亨依序備完整桌；守攤漏守會耗盡防線', () => {
     const tycoon = games.find((item) => item.id === 'night-market-tycoon')!;

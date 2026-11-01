@@ -15,6 +15,8 @@ let save: Save = readSave();
 let loadingRetry: (() => void) | null = null;
 let loadingHadError = false;
 let loadingAssetTitle = '';
+let arcadeBoot: Promise<void> | null = null;
+let gameRequest = 0;
 
 function readSave(): Save {
   try {
@@ -42,7 +44,7 @@ function render() {
         <footer><span>${BRAND} · v${__APP_VERSION__}</span><span>像素有點糊，回憶剛剛好。</span></footer>
       </main>
       <section id="play-view" class="play-view hidden"><div class="playbar"><button id="back-home" class="icon-button">← 回大廳</button><div><strong id="playing-title"></strong><span id="playing-hint"></span></div><div class="playing-score">得分 <b id="score">0</b><span>最佳 <b id="best-score">0</b></span></div><button id="multiplayer-ready" class="icon-button hidden">準備好</button><button id="multiplayer-start" class="icon-button hidden">開始對戰</button><button id="restart" class="icon-button">↻ 再玩一次</button></div><p class="rotate-hint">↻ 轉成橫向畫面，玩起來更過癮</p><p id="live-prompt" class="live-prompt" aria-live="polite">看清楚目標，準備開局！</p><div id="room-board" class="room-board hidden" aria-live="polite"></div><div class="game-stage"><div id="game-canvas"></div><div id="result-panel" class="result-panel hidden"><p class="eyebrow">ROUND COMPLETE</p><h2>收攤囉！</h2><p id="result-copy"></p><div class="hero-buttons"><button class="primary" id="result-retry">再來一局</button><button class="secondary" id="result-home">回大廳</button></div></div></div><div class="touch-controls" aria-label="觸控操作"></div><p class="play-credit">老馬麵攤製作 × GPT-6 Luna　·　v${__APP_VERSION__}</p></section>
-      <div id="loading" class="loading-screen"><div class="loading-card"><div class="loading-logo">老馬<br/>麵攤</div><p class="eyebrow">TAIWAN NIGHT MARKET ARCADE</p><h2>Loading<span class="dots">...</span></h2><div class="loading-track"><i id="loading-progress" class="indeterminate"></i></div><p id="loading-label">正在載入街機引擎…</p><small>老馬麵攤製作</small><button id="loading-retry" class="secondary hidden">重新載入</button></div></div>
+      <div id="loading" class="loading-screen"><div class="loading-card"><div class="loading-logo">老馬<br/>麵攤</div><p class="eyebrow">TAIWAN NIGHT MARKET ARCADE</p><h2>Loading<span class="dots">...</span></h2><div class="loading-track"><i id="loading-progress" class="indeterminate"></i></div><p id="loading-label">正在準備夜市大廳…</p><small>老馬麵攤製作</small><button id="loading-retry" class="secondary hidden">重新載入</button></div></div>
       <dialog id="room-dialog"><form method="dialog" class="room-form"><button class="close-dialog" value="cancel" aria-label="關閉">×</button><p class="eyebrow">PLAY TOGETHER</p><h2>約朋友來夜市</h2><label>你的暱稱<input id="nickname" maxlength="12" placeholder="例如：麵攤熟客" required /></label><label>房間代碼 <span class="optional">加入房間才需要</span><input id="room-code" maxlength="12" placeholder="建立房間可留空" /></label><p id="room-status" class="room-status">一間房最多 4 位玩家。</p><div class="room-actions"><button type="button" class="secondary" id="join-room">加入朋友房間</button><button type="button" class="primary" id="create-room">建立新房間</button></div></form></dialog>
       <div id="toast" class="toast" role="status"></div>
     </div>`;
@@ -116,7 +118,7 @@ function bindUI() {
     } else if (copy) copy.textContent = `本局 ${detail.score} 分・目前最佳 ${best[detail.gameId] ?? 0} 分`;
     document.querySelector('#result-panel')?.classList.remove('hidden');
   });
-  window.addEventListener('arcade:ready', () => { if (!loadingHadError) setTimeout(() => finishLoading(), 450); });
+  window.addEventListener('arcade:ready', () => { if (!loadingHadError && !loadingAssetTitle) setTimeout(() => { if (!loadingAssetTitle) finishLoading(); }, 450); });
   window.addEventListener('arcade:load-start', (event) => {
     loadingHadError = false;
     loadingAssetTitle = (event as CustomEvent<{ title: string }>).detail.title;
@@ -150,6 +152,7 @@ function renderTouchControls(game: GameSpec) {
 }
 
 function openGame(game: GameSpec) {
+  gameRequest++;
   selected = game;
   document.querySelector('#multiplayer-start')?.classList.add('hidden');
   document.querySelector('#room-board')?.classList.add('hidden');
@@ -162,9 +165,12 @@ function openGame(game: GameSpec) {
   document.querySelector('#best-score')!.textContent = String(save.bestSingle[game.id] ?? 0);
   document.querySelector('#result-panel')?.classList.add('hidden');
   renderTouchControls(game);
-  startGame(game);
+  void startGame(game, undefined, gameRequest);
 }
-function startGame(game: GameSpec, seed?: number) {
+async function startGame(game: GameSpec, seed?: number, request = gameRequest) {
+  try { await bootArcade(); }
+  catch { return; }
+  if (request !== gameRequest || document.querySelector('#play-view')?.classList.contains('hidden')) return;
   document.querySelector('#result-panel')?.classList.add('hidden');
   document.querySelector('#score')!.textContent = '0';
   window.dispatchEvent(new CustomEvent('arcade:start', { detail: { game, multiplayer: Boolean(room), seed } }));
@@ -207,6 +213,7 @@ async function connectRoom(mode: 'create' | 'join') {
   if (!serverUrl) return setRoomStatus('多人伺服器尚未設定，單人遊戲不受影響。', true);
   setRoomStatus('正在尋找夜市包廂…');
   try {
+    await bootArcade();
     const client = new Client(serverUrl);
     room = mode === 'create'
       ? await client.create('arcade', { nickname, gameId: selected?.id ?? firstBatch[0].id })
@@ -303,24 +310,48 @@ function showLoadFailure(message: string, retry: () => void) {
 }
 
 render();
-async function bootArcade() {
-  try {
-    const [phaserModule, sceneModule] = await Promise.all([import('phaser'), import('./games/ArcadeScene')]);
-    const Phaser = phaserModule.default;
-    const game = new Phaser.Game({
-      type: Phaser.AUTO,
-      parent: 'game-canvas',
-      width: 960,
-      height: 540,
-      backgroundColor: '#17140f',
-      pixelArt: true,
-      scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-      scene: [sceneModule.ArcadeScene],
+window.setTimeout(finishLoading, 450);
+function bootArcade(): Promise<void> {
+  if (arcadeBoot) return arcadeBoot;
+  const overlay = document.querySelector('#loading');
+  overlay?.classList.remove('hidden', 'fade-out');
+  document.querySelector('#loading-retry')?.classList.add('hidden');
+  const label = document.querySelector<HTMLElement>('#loading-label');
+  if (label) label.textContent = '正在載入街機引擎…';
+  const bar = document.querySelector<HTMLElement>('#loading-progress');
+  if (bar) { bar.style.width = ''; bar.classList.add('indeterminate'); }
+  loadingHadError = false;
+  arcadeBoot = new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      window.removeEventListener('arcade:ready', onReady);
+      window.removeEventListener('arcade:load-error', onLoadError);
+    };
+    const onReady = () => { cleanup(); resolve(); };
+    const onLoadError = () => { cleanup(); reject(new Error('Phaser shared assets failed to load')); };
+    window.addEventListener('arcade:ready', onReady, { once: true });
+    window.addEventListener('arcade:load-error', onLoadError, { once: true });
+    void (async () => {
+      const [phaserModule, sceneModule] = await Promise.all([import('phaser'), import('./games/ArcadeScene')]);
+      const Phaser = phaserModule.default;
+      const game = new Phaser.Game({
+        type: Phaser.AUTO,
+        parent: 'game-canvas',
+        width: 960,
+        height: 540,
+        backgroundColor: '#17140f',
+        pixelArt: true,
+        scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+        scene: [sceneModule.ArcadeScene],
+      });
+      game.events.on('destroy', () => showLoadFailure('遊戲載入遇到問題，請重新載入。', () => location.reload()));
+    })().catch((error: unknown) => {
+      cleanup();
+      arcadeBoot = null;
+      showLoadFailure('遊戲引擎載入遇到問題，請重新載入。', () => location.reload());
+      reject(error);
     });
-    game.events.on('destroy', () => showLoadFailure('遊戲載入遇到問題，請重新載入。', () => location.reload()));
-  } catch {
-    showLoadFailure('遊戲引擎載入遇到問題，請重新載入。', () => location.reload());
-  }
+  });
+  arcadeBoot.catch(() => { arcadeBoot = null; });
+  return arcadeBoot;
 }
-bootArcade();
 
