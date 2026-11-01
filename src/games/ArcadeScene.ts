@@ -1,11 +1,11 @@
 import Phaser from 'phaser';
 import type { GameAction, GameSpec } from './catalog';
-import { actionForKey, advanceGameRun, applyGameAction, createGameRun, type GameRun } from './gameplay';
+import { acceptsInput, actionForKey, advanceGameRun, applyGameAction, createGameRun, type GameRun } from './gameplay';
 
 const W = 960;
 const H = 540;
 type Session = { game: GameSpec; run: GameRun; multiplayer: boolean; nickname: string; peers: string[]; imageKeys: string[] };
-const labelsFor = (action: GameAction) => ({ LEFT: '←', RIGHT: '→', UP: '↑', DOWN: '↓', ACTION: '●', A: 'A', S: 'S', D: 'D', '0': '0', '1': '1', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7', '8': '8', '9': '9' })[action];
+const labelsFor = (action: GameAction) => ({ LEFT: '←', RIGHT: '→', UP: '↑', DOWN: '↓', ACTION: '●', A: 'A', S: 'S', D: 'D', F: 'F', '0': '0', '1': '1', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7', '8': '8', '9': '9' })[action];
 
 export class ArcadeScene extends Phaser.Scene {
   private paint!: Phaser.GameObjects.Graphics;
@@ -14,6 +14,7 @@ export class ArcadeScene extends Phaser.Scene {
   private session: Session | null = null;
   private soundEnabled = false;
   private lastSecond = 0;
+  private lastInputAt = Number.NEGATIVE_INFINITY;
   private cycle?: Phaser.Sound.BaseSound;
 
   constructor() { super('arcade'); }
@@ -52,6 +53,7 @@ export class ArcadeScene extends Phaser.Scene {
     if (!this.cache.audio.exists(`${game.id}-action`)) this.load.audio(`${game.id}-action`, `${base}/audio/${game.id}-action.wav`);
     this.session = { game, run: createGameRun(game, multiplayer, seed), multiplayer, nickname: '', peers: [], imageKeys: assets.map(([key]) => key) };
     this.lastSecond = 0;
+    this.lastInputAt = Number.NEGATIVE_INFINITY;
     if (this.load.isLoading()) this.load.once('complete', () => { this.draw(); window.dispatchEvent(new Event('arcade:load-complete')); });
     else if (needsLoad) { this.load.once('complete', () => { this.draw(); window.dispatchEvent(new Event('arcade:load-complete')); }); this.load.start(); }
     else this.draw();
@@ -68,6 +70,9 @@ export class ArcadeScene extends Phaser.Scene {
   private clearSessionAssets() { this.images.forEach((image) => image.destroy()); this.images = []; }
   private act(raw: string) {
     const s = this.session; if (!s || s.run.finished) return;
+    const now = performance.now();
+    if (s.multiplayer && !acceptsInput(now, this.lastInputAt)) return;
+    if (s.multiplayer) this.lastInputAt = now;
     const action = raw.toUpperCase() as Parameters<typeof applyGameAction>[1];
     const before = s.run.score; s.run = applyGameAction(s.run, action);
     if (s.multiplayer) window.dispatchEvent(new CustomEvent('arcade:network-input', { detail: { action } }));
@@ -181,11 +186,11 @@ export class ArcadeScene extends Phaser.Scene {
     const labels: Record<string, string> = { LEFT: '←', RIGHT: '→', UP: '↑', DOWN: '↓', A: 'A', S: 'S', D: 'D' };
     const prompts: Record<string, string> = {
       'night-market-rush': `訂單 ${run.tokens + 1}：按 ${labels[run.sequence[(run.tokens * 3 + run.cursor) % run.sequence.length]]}`, 'pinball-duel': run.launched ? `彈珠來了！打 ${run.targetLane === 0 ? '左' : '右'} 彈板` : '按出招發射彈珠，接著跟著提示打板', 'ring-toss': `瞄準亮起的 ${run.target + 3} 號獎品，再投擲`, 'neon-wiring': '讓每段電線箭頭都朝上，接通招牌',
-      'hopscotch-king': `跟著路線踩格：${labels[run.sequence[run.cursor % 4]]}`, 'oyster-omelet': `目前熟度 ${run.heat}%　綠色區翻鍋`, 'sausage-chef': `目前熟度 ${run.heat}%　金黃時翻面`, 'change-maker': `找零 ${run.target} 元：輸入答案`, 'shrimp-fishing': '放餌後看浮標，跳動時起竿', 'lucky-wheel': '看到獎區時按下停輪', 'mole-market': `目標洞口：${run.targetLane + 1}`, 'claw-master': `夾爪 ${run.aim + 1}　娃娃在 ${run.targetLane + 1} 號位`, 'balloon-shooter': `瞄準第 ${run.targetLane + 1} 排、橫向 ${run.target + 3} 號的氣球`,
-      'braised-bites': `滷味訂單：${['蘿蔔','豆干','米血'][run.cursor % 3]}，依序夾取`, 'bubble-tea-shake': `左右交替搖杯　目前搖勁 ${run.heat}%`, 'alley-delivery': `照箭頭路線送餐　目前送到第 ${run.cursor % 5 + 1} 個路口`, 'fishball-skewer': `魚丸串第 ${run.cursor % 3 + 1}/3 顆：按 ${labels[run.sequence[run.cursor % run.sequence.length]] ?? 'A/S/D'}`,
-      'mahjong-match': '翻牌找出一對相同筒子：A、S、D 選牌，空白確認', 'alley-skater': run.obstacle ? `路障在第 ${run.targetLane + 1} 線：跳過或換線` : '滑板前進：跳、蹲或切換巷道', 'temple-drums': `陣頭鼓點：${labels[run.sequence[run.cursor % 4]]}`, 'night-market-tycoon': `訂單要 ${['麵','湯','配料'][run.cursor % 3]}　庫存 ${run.stock}/5`,
+      'hopscotch-king': `跟著路線踩格：${labels[run.sequence[run.cursor]]}`, 'oyster-omelet': `目前熟度 ${run.heat}%　綠色區翻鍋`, 'sausage-chef': `目前熟度 ${run.heat}%　金黃時翻面`, 'change-maker': `找零 ${run.target} 元：輸入答案`, 'shrimp-fishing': '放餌後看浮標，跳動時起竿', 'lucky-wheel': '看到獎區時按下停輪', 'mole-market': `目標洞口：${run.targetLane + 1}`, 'claw-master': `夾爪 ${run.aim + 1}　娃娃在 ${run.targetLane + 1} 號位`, 'balloon-shooter': `瞄準第 ${run.targetLane + 1} 排、橫向 ${run.target + 3} 號的氣球`,
+      'braised-bites': `滷味訂單：${labels[run.sequence[run.cursor]] ?? '完成一輪'}`, 'bubble-tea-shake': `左右交替搖杯　目前搖勁 ${run.heat}%`, 'alley-delivery': `照箭頭路線送餐　目前送到第 ${run.cursor + 1} 個路口`, 'fishball-skewer': `魚丸串第 ${run.cursor + 1} 顆：按 ${labels[run.sequence[run.cursor]] ?? '完成一串'}`,
+      'mahjong-match': '翻牌找出兩組相同筒子：A、S、D、F 選牌，空白確認', 'alley-skater': run.obstacle ? `路障在第 ${run.targetLane + 1} 線：跳過或換線` : '滑板前進：跳、蹲或切換巷道', 'temple-drums': `陣頭鼓點：${labels[run.sequence[run.cursor]]}`, 'night-market-tycoon': `訂單要 ${labels[run.sequence[run.cursor]] ?? '完成一桌'}　庫存 ${run.stock}/5`,
       'night-market-puzzle': `把磁磚推進空格　空格在第 ${run.firstPick + 1} 格`, 'sign-match': `選第 ${run.cursor + 1}、${run.cursor + 2} 面招牌交換，湊出三盞連線`, 'tile-runner': run.obstacle ? '屋頂缺口到了：左右換瓦或空白跳過' : '沿屋脊前進，留意即將出現的缺口', 'stall-defense': `搗蛋客從第 ${run.targetLane + 1} 巷來　防線 ${run.stock}/5`, 'old-ma-adventure': run.obstacle ? `巷口紙箱擋路：空白鍵跳過，或改走別線` : '左右穿巷收集食材，遇紙箱就跳',
-      'planter-bowler': `瞄準第 ${run.target + 3} 號柱，等投球力道進綠區出手`, 'rain-dash': run.obstacle ? `水窪在第 ${run.targetLane + 1} 巷，立刻切到安全巷` : '雨中衝刺：左右切巷，別踩進水窪', 'sparrow-rhythm': `麻雀踩拍：${labels[run.sequence[run.cursor % 4]]}　${run.phase % 1.2 >= 0.45 && run.phase % 1.2 <= 0.82 ? '現在亮燈！' : '等燈亮再按'}`,
+      'planter-bowler': `瞄準第 ${run.target + 3} 號柱，等投球力道進綠區出手`, 'rain-dash': run.obstacle ? `水窪在第 ${run.targetLane + 1} 巷，立刻切到安全巷` : '雨中衝刺：左右切巷，別踩進水窪', 'sparrow-rhythm': `麻雀踩拍：${labels[run.sequence[run.cursor]]}　${run.phase % 1.2 >= 0.45 && run.phase % 1.2 <= 0.82 ? '現在亮燈！' : '等燈亮再按'}`,
     };
     return prompts[run.gameId] ?? (run.gameId === 'braised-bites' || run.gameId === 'fishball-skewer' ? `依序按 ${labels[action]}` : `${run.gameId === 'sparrow-rhythm' || run.gameId === 'temple-drums' ? '節奏提示' : '目標'}：${labels[action] ?? '按畫面操作'}`);
   }
@@ -207,8 +212,8 @@ export class ArcadeScene extends Phaser.Scene {
       for (let i = 0; i < 3; i++) { const x = 350 + i * 130; const active = i === r.cursor; p.fillStyle(active ? 0xffbd4a : 0x66533b, 1).fillRoundedRect(x - 43, 210, 86, 72, 9); this.text(x, 237, food[['A','S','D'].indexOf(r.sequence[(r.tokens * 3 + i) % r.sequence.length])], 32, '#fff2cb'); this.text(x, 270, ['A','S','D'][['A','S','D'].indexOf(r.sequence[(r.tokens * 3 + i) % r.sequence.length])], 13, '#37230e'); }
       this.text(480, 301, `完成訂單 ${r.tokens}　連擊 ${r.streak}`, 17, '#ffd978');
     } else if (r.gameId === 'hopscotch-king') {
-      for (let i = 0; i < 4; i++) { const x = 340 + i * 92; p.fillStyle(i < r.cursor ? 0x62d7a5 : i === r.cursor ? 0xffd66f : 0x564633, 1).fillRoundedRect(x - 33, 214, 66, 58, 6); this.text(x, 241, labelsFor(r.sequence[i]), 24, i <= r.cursor ? '#281b0d' : '#e8d7b5'); }
-      this.text(480, 301, `路線進度 ${r.cursor % 4}/4　連續踩中 ${r.streak}`, 17, '#ffd978');
+      for (let i = 0; i < 4; i++) { const x = 340 + i * 92; const cue = r.sequence[r.cursor + i]; p.fillStyle(i === 0 ? 0xffd66f : 0x564633, 1).fillRoundedRect(x - 33, 214, 66, 58, 6); this.text(x, 241, labelsFor(cue), 24, i === 0 ? '#281b0d' : '#e8d7b5'); }
+      this.text(480, 301, `路線進度 ${r.cursor} 步　連續踩中 ${r.streak}`, 17, '#ffd978');
     } else if (r.gameId === 'neon-wiring') {
       const arrows = ['↑','→','↓','←'];
       r.tiles.forEach((tile, i) => { const x = 345 + i * 90; p.lineStyle(10, tile === 0 ? 0x7dffc1 : 0xff737d, 1).lineBetween(x, 233, x + 55, 233); p.fillStyle(i === r.cursor ? color : 0xd7b978, 1).fillCircle(x + 28, 233, i === r.cursor ? 20 : 15); this.text(x + 28, 233, arrows[tile], 21, '#24190e'); });
@@ -231,8 +236,8 @@ export class ArcadeScene extends Phaser.Scene {
       p.fillStyle(0xfff0bd, 1).fillCircle(480 + Math.sin(r.elapsed) * 110, 245 + Math.cos(r.elapsed) * 45, 9);
       this.text(480, 294, r.launched ? `← ${r.targetLane === 0 ? '打左板' : '打右板'} →` : '發射！看球的閃光提示', 17, '#f8e7c1');
     } else if (r.gameId === 'mahjong-match') {
-      r.tiles.forEach((tile, i) => { const x = 390 + i * 78; const shown = i === r.selected || r.matched[i] || r.firstPick === i; p.fillStyle(r.matched[i] ? 0x789b76 : i === r.selected ? 0xf7d88a : 0xe8d4aa, 1).fillRect(x, 211, 58, 76); p.lineStyle(3, i === r.selected ? 0xffd34e : 0x806239, 1).strokeRect(x, 211, 58, 76); this.text(x + 29, 249, shown ? ['一筒','二筒','三筒'][tile] : '？', 18, '#352119'); });
-      this.text(480, 307, `已配 ${r.matched.filter(Boolean).length}/2　A/S/D 翻牌　空白確認`, 14, '#e8d7b5');
+      r.tiles.forEach((tile, i) => { const x = 326 + i * 78; const shown = i === r.selected || r.matched[i] || r.firstPick === i; p.fillStyle(r.matched[i] ? 0x789b76 : i === r.selected ? 0xf7d88a : 0xe8d4aa, 1).fillRect(x, 211, 58, 76); p.lineStyle(3, i === r.selected ? 0xffd34e : 0x806239, 1).strokeRect(x, 211, 58, 76); this.text(x + 29, 249, shown ? ['一筒','二筒','三筒'][tile] : '？', 18, '#352119'); this.text(x + 29, 302, ['A','S','D','F'][i], 13, '#ffe9b7'); });
+      this.text(480, 329, `已配 ${r.matched.filter(Boolean).length}/4　選牌後按空白配對`, 14, '#e8d7b5');
     } else if (r.gameId === 'oyster-omelet' || r.gameId === 'sausage-chef') {
       p.fillStyle(0x161414, 1).fillEllipse(480, 250, 244, 92); p.fillStyle(0x6d6c68, 1).fillEllipse(480, 246, 210, 72);
       if (r.gameId === 'oyster-omelet') { p.fillStyle(0xf0bd59, 1).fillEllipse(480, 244, 128, 42); p.fillStyle(0x62412a, 1).fillEllipse(480, 246, 104, 27); p.fillStyle(0x79bb56, 1).fillCircle(443, 236, 5).fillCircle(493, 251, 6).fillCircle(521, 231, 4); this.text(480, 295, '蚵仔煎　鐵板滋滋響', 15, '#ffe5a3'); }
@@ -253,7 +258,7 @@ export class ArcadeScene extends Phaser.Scene {
       for (let i = 0; i < lanes; i++) { const x = left + i * width; p.fillStyle(i === r.lane ? 0x7a5a31 : 0x40332a, 1).fillRect(x, 211, width - 6, 92); p.lineStyle(2, 0xc7a878, .6).strokeRect(x, 211, width - 6, 92); if (r.obstacle && i === r.targetLane) { p.fillStyle(r.gameId === 'rain-dash' ? 0x77a9c6 : 0xdf674d, 1).fillTriangle(x + 22, 288, x + 55, 231, x + 88, 288); this.text(x + 55, 265, r.gameId === 'rain-dash' ? '水窪' : '路障', 12, '#fff2d7'); } }
       p.fillStyle(0xffd16e, 1).fillRoundedRect(left + r.lane * width + width / 2 - 16, 278, 32, 18, 5); this.text(480, 320, r.gameId === 'old-ma-adventure' ? `老馬回攤　食材 ${r.tokens}　前進 ${Math.floor(r.elapsed)} 秒` : `街巷路線　安全閃避 ${r.tokens} 次`, 14, '#fff0c5');
     } else if (r.gameId === 'temple-drums' || r.gameId === 'sparrow-rhythm') {
-      if (r.gameId === 'temple-drums') { for (let i = 0; i < 4; i++) { const x = 345 + i * 90; p.fillStyle(i === r.cursor % 4 ? 0xd84e38 : 0x8d3427, 1).fillEllipse(x, 247, 62, 56); p.lineStyle(4, 0xf2ca7b, 1).strokeEllipse(x, 247, 54, 46); this.text(x, 247, labelsFor(r.sequence[i % r.sequence.length]), 22, '#fff0c8'); } this.text(480, 314, `陣頭鼓點 ${r.cursor % 4}/4　連擊 ${r.streak}`, 14, '#ffe5a4'); }
+      if (r.gameId === 'temple-drums') { for (let i = 0; i < 4; i++) { const x = 345 + i * 90; p.fillStyle(i === 0 ? 0xd84e38 : 0x8d3427, 1).fillEllipse(x, 247, 62, 56); p.lineStyle(4, 0xf2ca7b, 1).strokeEllipse(x, 247, 54, 46); this.text(x, 247, labelsFor(r.sequence[r.cursor + i]), 22, '#fff0c8'); } this.text(480, 314, `陣頭鼓點 ${r.cursor} 拍　連擊 ${r.streak}`, 14, '#ffe5a4'); }
       else { p.fillStyle(0x5e4932, 1).fillRect(332, 285, 296, 16); p.fillStyle(0x795b37, 1).fillTriangle(330, 286, 356, 233, 382, 286); p.fillTriangle(420, 286, 446, 233, 472, 286); p.fillTriangle(510, 286, 536, 233, 562, 286); p.fillStyle(0x51402c, 1).fillEllipse(480, 251, 72, 43); p.fillStyle(0xd7a95b, 1).fillCircle(465, 246, 4).fillCircle(481, 239, 4).fillCircle(495, 249, 4); const beatOn=r.phase%1.2>=.45&&r.phase%1.2<=.82;p.fillStyle(beatOn?0x8fe178:0x553a29,1).fillCircle(480,210,12);this.text(480, 320, `麻雀追米　連續踩拍 ${r.streak}　撿到米粒 ${r.tokens}`, 14, '#fff0c5'); }
     } else if (r.gameId === 'night-market-tycoon') {
       p.fillStyle(0x9b6431, 1).fillRect(356, 228, 248, 75); p.fillStyle(0x3a2b20, 1).fillRect(369, 237, 221, 54); const stock = ['麵','湯','料']; for (let i=0;i<3;i++){ const x=407+i*70; p.fillStyle(r.sequence[r.cursor % 3] === ['A','S','D'][i] ? 0xf2ba50 : 0x92704a,1).fillRect(x-21,243,42,38); this.text(x,261,stock[i],18,'#fff0c9'); } this.text(480, 320, `備料庫存 ${r.stock}　完成訂單 ${r.tokens} 桌`, 14, '#fff0c5');

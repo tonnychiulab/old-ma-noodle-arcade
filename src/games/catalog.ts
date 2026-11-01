@@ -5,7 +5,7 @@ export type GameId =
   | 'planter-bowler' | 'balloon-shooter' | 'rain-dash' | 'sparrow-rhythm' | 'night-market-puzzle' | 'change-maker'
   | 'sign-match' | 'tile-runner' | 'shrimp-fishing' | 'lucky-wheel' | 'stall-defense' | 'old-ma-adventure';
 
-export type GameAction = 'LEFT' | 'RIGHT' | 'UP' | 'DOWN' | 'ACTION' | 'A' | 'S' | 'D' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
+export type GameAction = 'LEFT' | 'RIGHT' | 'UP' | 'DOWN' | 'ACTION' | 'A' | 'S' | 'D' | 'F' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
 export type GameCategory = '反應與服務' | '精準與物理' | '解謎' | '競速與移動' | '節奏與記憶' | '經營與冒險';
 export type GameSpec = {
   id: GameId;
@@ -35,7 +35,7 @@ const rows: Omit<GameSpec, 'available'>[] = [
   { id:'alley-delivery', title:'夜市送餐王', tagline:'沿著指定路線把餐點送到客人手上！', controls:'依序按方向鍵通過巷口', color:'#f18b59', symbol:'送', category:'競速與移動', batch:2, multiplayer:false, singleSeconds:50, actions:[{action:'LEFT',label:'←'},{action:'UP',label:'↑'},{action:'DOWN',label:'↓'},{action:'RIGHT',label:'→'}] },
   { id:'claw-master', title:'夾娃娃高手', tagline:'移動夾爪，對準目標再抓取！', controls:'左右移動，空白鍵下降夾取', color:'#ed93ce', symbol:'夾', category:'經營與冒險', batch:3, multiplayer:false, singleSeconds:40, actions:[{action:'LEFT',label:'左移'},{action:'ACTION',label:'抓取'},{action:'RIGHT',label:'右移'}] },
   { id:'fishball-skewer', title:'魚丸串串', tagline:'照著客人的順序串起魚丸！', controls:'依序按 A、S、D 串食材', color:'#ffe08d', symbol:'丸', category:'反應與服務', batch:3, multiplayer:false, singleSeconds:35, actions:[{action:'A',label:'魚丸'},{action:'S',label:'香菇'},{action:'D',label:'青菜'}] },
-  { id:'mahjong-match', title:'麻將配對', tagline:'翻開牌面，找出兩張相同的麻將！', controls:'按 A、S、D 翻牌；再按空白鍵確認', color:'#7cc9a4', symbol:'麻', category:'解謎', batch:2, multiplayer:false, singleSeconds:55, actions:[{action:'A',label:'一筒'},{action:'S',label:'二筒'},{action:'D',label:'三筒'},{action:'ACTION',label:'配對'}] },
+  { id:'mahjong-match', title:'麻將配對', tagline:'翻開牌面，找出兩組相同的麻將！', controls:'按 A、S、D、F 翻牌；再按空白鍵確認', color:'#7cc9a4', symbol:'麻', category:'解謎', batch:2, multiplayer:false, singleSeconds:55, actions:[{action:'A',label:'牌一'},{action:'S',label:'牌二'},{action:'D',label:'牌三'},{action:'F',label:'牌四'},{action:'ACTION',label:'配對'}] },
   { id:'alley-skater', title:'巷弄滑板', tagline:'跳過路障，在巷子裡一路滑行！', controls:'上跳、下蹲、左右閃避', color:'#e77d62', symbol:'板', category:'競速與移動', batch:3, multiplayer:false, singleSeconds:45, actions:[{action:'LEFT',label:'左閃'},{action:'UP',label:'跳'},{action:'DOWN',label:'蹲'},{action:'RIGHT',label:'右閃'}] },
   { id:'temple-drums', title:'廟口鼓陣', tagline:'跟著鼓點節拍，敲出最熱鬧陣頭！', controls:'依序按方向鍵打鼓', color:'#df6c55', symbol:'鼓', category:'節奏與記憶', batch:3, multiplayer:false, singleSeconds:45, actions:[{action:'LEFT',label:'左鼓'},{action:'UP',label:'大鼓'},{action:'DOWN',label:'小鼓'},{action:'RIGHT',label:'右鼓'}] },
   { id:'night-market-tycoon', title:'夜市攤位大亨', tagline:'看訂單補貨，撐過晚餐尖峰！', controls:'A 備麵、S 備湯、D 備料', color:'#d38f54', symbol:'店', category:'經營與冒險', batch:4, multiplayer:false, singleSeconds:50, actions:[{action:'A',label:'備麵'},{action:'S',label:'備湯'},{action:'D',label:'備料'}] },

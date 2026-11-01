@@ -34,6 +34,8 @@ jobs:
         run: npm ci
       - name: Verify game rules
         run: npm test
+      - name: Verify multiplayer room behavior
+        run: npm run test:multiplayer
       - name: Build static site
         run: npm run build
         env:

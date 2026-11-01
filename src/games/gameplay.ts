@@ -34,11 +34,12 @@ export type GameRun = {
 
 const arrows: GameAction[] = ['LEFT', 'UP', 'RIGHT', 'DOWN'];
 const foodActions: GameAction[] = ['A', 'S', 'D'];
+const cardActions: GameAction[] = ['A', 'S', 'D', 'F'];
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 function random(seed: number, max: number): [number, number] {
   const next = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-  return [next, next % max];
+  return [next, (next >>> 16) % max];
 }
 
 function makeSequence(seed: number, actions: GameAction[], count: number): [number, GameAction[]] {
@@ -52,14 +53,32 @@ function makeSequence(seed: number, actions: GameAction[], count: number): [numb
   return [current, result];
 }
 
+export function acceptsInput(now: number, lastAcceptedAt: number, intervalMs = 120): boolean {
+  return now - lastAcceptedAt >= intervalMs;
+}
+
+function ensureSequence(run: GameRun, actions: GameAction[], lookAhead = 0) {
+  if (run.cursor + lookAhead >= run.sequence.length) {
+    const [seed, next] = makeSequence(run.randomSeed, actions, 40);
+    run.randomSeed = seed;
+    run.sequence.push(...next);
+  }
+}
+
 export function createGameRun(game: GameSpec, multiplayer = false, seed = Date.now()): GameRun {
   const normalizedSeed = (seed >>> 0) || 1;
   const [nextSeed, sequence] = makeSequence(normalizedSeed, game.id === 'night-market-rush' || game.id === 'braised-bites' || game.id === 'fishball-skewer' || game.id === 'night-market-tycoon' ? foodActions : arrows, 40);
   const duration = multiplayer ? 40 : game.singleSeconds;
   const targetLane = game.id === 'pinball-duel' ? normalizedSeed % 2 : normalizedSeed % 3;
-  // The matching games always start with a solvable board: two copies and one decoy.
-  const matchTiles = [normalizedSeed % 3, normalizedSeed % 3, (normalizedSeed + 1) % 3];
-  if (normalizedSeed & 1) [matchTiles[0], matchTiles[2]] = [matchTiles[2], matchTiles[0]];
+  // Mahjong starts with two complete pairs, shuffled without replacement.
+  const pairA = normalizedSeed % 3;
+  const pairB = (pairA + 1) % 3;
+  const matchTiles = [pairA, pairB, pairA, pairB];
+  let tileSeed = normalizedSeed;
+  for (let index = matchTiles.length - 1; index > 0; index--) {
+    const [next, pick] = random(tileSeed, index + 1); tileSeed = next;
+    [matchTiles[index], matchTiles[pick]] = [matchTiles[pick], matchTiles[index]];
+  }
   const signTiles = [normalizedSeed % 3, (normalizedSeed + 1) % 3, normalizedSeed % 3, normalizedSeed % 3];
   const puzzleOffset = 1 + (normalizedSeed % 3);
   const puzzleTiles = [0, 1, 2, 3].map((_value, index) => (index + puzzleOffset) % 4);
@@ -70,7 +89,7 @@ export function createGameRun(game: GameSpec, multiplayer = false, seed = Date.n
     heat: 20 + normalizedSeed % 35, tokens: 0, stock: 3, cursor: game.id === 'night-market-puzzle' ? (puzzleBlank + 1) % 4 : 0, selected: -1,
     firstPick: game.id === 'night-market-puzzle' ? puzzleBlank : -1, input: '', sequence,
     tiles: game.id === 'mahjong-match' ? matchTiles : game.id === 'sign-match' ? signTiles : game.id === 'night-market-puzzle' ? puzzleTiles : Array.from({ length: 4 }, (_, i) => (normalizedSeed + i * 3) % 4),
-    matched: Array.from({ length: game.id === 'mahjong-match' ? 3 : 4 }, () => false), obstacle: false, launched: false, finished: false,
+    matched: Array.from({ length: 4 }, () => false), obstacle: false, launched: false, finished: false,
     feedback: '準備好了嗎？', feedbackKind: 'info', randomSeed: nextSeed,
   };
 }
@@ -85,7 +104,8 @@ function result(run: GameRun, points: number, feedback: string, kind: FeedbackKi
 }
 
 function sequenceAction(run: GameRun, action: GameAction, choices: GameAction[], points: number, label: string) {
-  const expected = run.sequence[run.cursor % choices.length];
+  ensureSequence(run, choices, 4);
+  const expected = run.sequence[run.cursor];
   if (action === expected) { run.cursor++; return result(run, points + Math.min(run.streak, 5), `${label}正確！連續 ${run.streak + 1} 次`, 'good'); }
   if (choices.includes(action)) return result(run, -1, `差一點！提示還是 ${expected}`, 'miss');
   return result(run, 0, `等一下，按 ${expected}`, 'info');
@@ -93,7 +113,7 @@ function sequenceAction(run: GameRun, action: GameAction, choices: GameAction[],
 
 export function applyGameAction(current: GameRun, action: GameAction): GameRun {
   if (current.finished) return current;
-  const run: GameRun = { ...current, sequence: current.sequence, tiles: [...current.tiles], matched: [...current.matched] };
+  const run: GameRun = { ...current, sequence: [...current.sequence], tiles: [...current.tiles], matched: [...current.matched] };
   switch (run.gameId) {
     case 'night-market-rush':
       {
@@ -148,7 +168,8 @@ export function applyGameAction(current: GameRun, action: GameAction): GameRun {
       const beat = run.phase % 1.2;
       const onBeat = beat >= 0.45 && beat <= 0.82;
       if (!onBeat) return result(run, -1, '踩早或踩晚了，等麻雀腳邊亮燈再按', 'miss');
-      const expected = run.sequence[run.cursor % arrows.length];
+      ensureSequence(run, arrows, 4);
+      const expected = run.sequence[run.cursor];
       if (action !== expected) return result(run, -2, `拍子踩準了，但路線要按 ${expected}`, 'miss');
       run.cursor++; run.tokens++;
       return result(run, 9 + Math.min(run.streak, 5), '踩中節拍！撿到一粒米', 'good');
@@ -160,6 +181,13 @@ export function applyGameAction(current: GameRun, action: GameAction): GameRun {
     case 'tile-runner':
     case 'old-ma-adventure': {
       if (run.gameId === 'alley-delivery') return sequenceAction(run, action, arrows, 6, '送到一桌');
+      if (run.gameId === 'rain-dash') {
+        if (action !== 'LEFT' && action !== 'RIGHT') return result(run, 0, '積水路滑，左右換巷保持平衡', 'info');
+        run.lane = clamp(run.lane + (action === 'LEFT' ? -1 : 1), 0, 2);
+        if (run.obstacle && run.lane === run.targetLane) { run.obstacle = false; run.heat = Math.max(0, run.heat - 20); return result(run, -3, '踩進水窪！輪胎抓地力下降', 'miss'); }
+        if (run.obstacle) { run.obstacle = false; run.heat = Math.min(100, run.heat + 5); run.tokens++; return result(run, 5 + Math.floor(run.heat / 25), '避開水窪，雨衣保持乾爽', 'good'); }
+        return result(run, 0, '前方巷道還算乾燥', 'info');
+      }
       if (run.gameId === 'alley-skater') {
         if (action === 'UP' && run.obstacle) { run.obstacle = false; return result(run, 10, '跳過路障！', 'good'); }
         if (action === 'DOWN' && !run.obstacle) { run.obstacle = false; return result(run, 2, '低身滑行', 'good'); }
@@ -204,18 +232,49 @@ export function applyGameAction(current: GameRun, action: GameAction): GameRun {
       return result(run, 0, '觀察前方障礙，切換到安全路線', 'info');
     }
     case 'hopscotch-king':
-    case 'temple-drums':
-      return sequenceAction(run, action, arrows, run.gameId === 'hopscotch-king' ? 10 : 8, run.gameId === 'hopscotch-king' ? '踩中格子' : '鼓點正確');
-    case 'oyster-omelet':
-    case 'sausage-chef': {
+      return sequenceAction(run, action, arrows, 10, '踩中格子');
+    case 'temple-drums': {
+      if (!arrows.includes(action)) return result(run, 0, '看鼓點提示，跟著拍子敲擊', 'info');
+      const beat = run.phase % 1.2;
+      if (beat < 0.45 || beat > 0.82) return result(run, -1, '鼓槌落早了或晚了，等下一拍', 'miss');
+      return sequenceAction(run, action, arrows, 8, '鼓點正確');
+    }
+    case 'oyster-omelet': {
       if (action !== 'ACTION') return result(run, 0, `熟度 ${run.heat}%：等綠色區再翻面`, 'info');
       const perfect = run.heat >= 55 && run.heat <= 78;
       run.heat = 10 + (run.step * 17) % 90;
-      return result(run, perfect ? 12 : -3, perfect ? '火候剛剛好！' : '太早或太晚，再看火候', perfect ? 'good' : 'miss');
+      return result(run, perfect ? 12 : -3, perfect ? '蚵仔煎翻面成功！' : '蛋皮破了，重新掌握鐵板火候', perfect ? 'good' : 'miss');
     }
-    case 'braised-bites':
-    case 'fishball-skewer':
-      return sequenceAction(run, action, foodActions, 7, run.gameId === 'braised-bites' ? '滷味夾對了' : '串好一顆');
+    case 'sausage-chef': {
+      if (action !== 'ACTION') return result(run, 0, `炭火 ${run.heat}%：盯住香腸兩側焦痕`, 'info');
+      const perfect = run.heat >= 62 && run.heat <= 82;
+      run.heat = 15 + (run.step * 23) % 85;
+      if (perfect) run.tokens++;
+      else run.stock = Math.max(0, run.stock - 1);
+      if (run.stock === 0) run.finished = true;
+      return result(run, perfect ? 9 : -2, perfect ? `翻面均勻，香腸完成 ${run.tokens} 支` : `烤焦一面！剩餘香腸 ${run.stock} 支`, perfect ? 'good' : 'miss');
+    }
+    case 'braised-bites': {
+      const orderLength = 3;
+      ensureSequence(run, foodActions, 4);
+      if (action === run.sequence[run.cursor]) {
+        run.cursor++;
+        if (run.cursor % orderLength === 0) { run.tokens++; return result(run, 18, '整份滷味配好！下一張訂單上桌', 'good'); }
+        return result(run, 3, `夾好 ${run.cursor % orderLength}/${orderLength} 樣滷味`, 'good');
+      }
+      if (foodActions.includes(action)) { run.cursor = Math.ceil(run.cursor / orderLength) * orderLength; return result(run, -2, '夾錯食材，這份訂單重來', 'miss'); }
+      return result(run, 0, '依客人訂單夾取滷味', 'info');
+    }
+    case 'fishball-skewer': {
+      ensureSequence(run, foodActions, 4);
+      if (action === run.sequence[run.cursor]) {
+        run.cursor++;
+        if (run.cursor % 3 === 0) { run.tokens++; return result(run, 15, '魚丸串完成！竹籤交給客人', 'good'); }
+        return result(run, 6, `串料 ${run.cursor % 3}/3，下一顆別掉了`, 'good');
+      }
+      if (foodActions.includes(action)) { run.cursor = Math.floor(run.cursor / 3) * 3; return result(run, -2, '順序不對，這串食材滑落重串', 'miss'); }
+      return result(run, 0, '依序把魚丸、配料串上竹籤', 'info');
+    }
     case 'bubble-tea-shake': {
       const expected = run.step % 2 === 0 ? 'LEFT' : 'RIGHT';
       if (action === expected) { run.heat = Math.min(100, run.heat + 17); return result(run, 5, `搖勁 ${run.heat}%！保持左右交替`, 'good'); }
@@ -238,22 +297,25 @@ export function applyGameAction(current: GameRun, action: GameAction): GameRun {
       return result(run, hit ? 12 : -1, hit ? '命中指定氣球！' : '沒有打中，追蹤目標再試', hit ? 'good' : 'miss');
     }
     case 'mahjong-match': {
-      const index = action === 'A' ? 0 : action === 'S' ? 1 : action === 'D' ? 2 : -1;
+      const index = cardActions.indexOf(action);
+      if (index >= 0 && run.matched[index]) return result(run, 0, '這張已配好，翻另一張牌', 'info');
       if (index >= 0) { run.selected = index; return result(run, 0, `翻開第 ${index + 1} 張牌：${run.tiles[index] + 1}筒`, 'info'); }
       if (action !== 'ACTION') return result(run, 0, '先選一張牌，再按配對', 'info');
-      if (run.selected < 0) return result(run, 0, '先按 A、S 或 D 翻一張牌', 'info');
-      if (run.firstPick < 0) { run.firstPick = run.selected; return result(run, 0, '再選一張相同的牌', 'info'); }
+      if (run.selected < 0) return result(run, 0, '先按 A、S、D 或 F 翻一張牌', 'info');
+      if (run.matched[run.selected]) { run.selected = -1; return result(run, 0, '這張已配好，翻另一張牌', 'info'); }
+      if (run.firstPick < 0) { run.firstPick = run.selected; run.selected = -1; return result(run, 0, '再選一張相同的牌', 'info'); }
       if (run.firstPick === run.selected) return result(run, 0, '再翻另一張牌比較看看', 'info');
       const match = run.tiles[run.firstPick] === run.tiles[run.selected];
       if (match) {
-        run.matched[run.firstPick] = true; run.matched[run.selected] = true; run.firstPick = -1;
-        if (run.matched.every(Boolean)) { run.tiles = run.tiles.map((_, i) => (run.randomSeed + i) % 3); run.matched = run.matched.map(() => false); return result(run, 24, '清台！新一桌麻將翻牌', 'good'); }
+        run.matched[run.firstPick] = true; run.matched[run.selected] = true; run.firstPick = -1; run.selected = -1;
+        if (run.matched.every(Boolean)) { const a = run.randomSeed % 3; const b = (a + 1) % 3; run.tiles = [a, b, a, b]; run.matched = run.matched.map(() => false); run.tokens++; return result(run, 24, '清台！新一桌麻將翻牌', 'good'); }
         return result(run, 12, '配對成功！', 'good');
       }
-      run.firstPick = -1; return result(run, -1, '不是一對，記住牌面再來', 'miss');
+      run.firstPick = -1; run.selected = -1; return result(run, -1, '不是一對，記住牌面再來', 'miss');
     }
     case 'night-market-tycoon': {
-      const correct = action === run.sequence[run.cursor % foodActions.length];
+      ensureSequence(run, foodActions, 4);
+      const correct = action === run.sequence[run.cursor];
       if (correct && run.stock > 0) {
         run.stock--; run.cursor++;
         if (run.cursor % foodActions.length === 0) { run.tokens++; return result(run, 18 + Math.min(run.streak, 5), '整桌出餐！下一張訂單上桌', 'good'); }
@@ -334,7 +396,7 @@ export function advanceGameRun(current: GameRun, seconds = 1): GameRun {
   if (current.finished || seconds <= 0) return current;
   const elapsed = Math.min(seconds, current.remaining);
   const run: GameRun = { ...current, elapsed: current.elapsed + elapsed, remaining: Math.max(0, current.remaining - elapsed), phase: current.phase + elapsed };
-  if (run.gameId === 'bumper-alley') run.score = Math.floor(run.elapsed);
+  if (run.gameId === 'bumper-alley') run.score += Math.floor(run.elapsed) - Math.floor(current.elapsed);
   if (run.gameId === 'oyster-omelet' || run.gameId === 'sausage-chef') run.heat = 20 + Math.round((Math.sin(run.elapsed * 2.2) + 1) * 38);
   if (run.gameId === 'planter-bowler') run.heat = 20 + Math.round((Math.sin(run.elapsed * 1.5) + 1) * 38);
   if (run.gameId === 'bubble-tea-shake') run.heat = Math.max(0, run.heat - Math.round(elapsed * 3));
@@ -365,6 +427,7 @@ export function actionForKey(code: string): GameAction | null {
   if (key === 'KEYA') return 'A';
   if (key === 'KEYS') return 'S';
   if (key === 'KEYD') return 'D';
+  if (key === 'KEYF') return 'F';
   if (/^[0-9]$/.test(key)) return key as GameAction;
   if (/^DIGIT[0-9]$/.test(key)) return key.slice(5) as GameAction;
   return null;

@@ -1,8 +1,9 @@
 import { schema, t, type SchemaType } from '@colyseus/schema';
 import { defineRoom, defineServer, Room, type Client } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
-import { advanceGameRun, applyGameAction, createGameRun, type GameRun } from '../../src/games/gameplay.js';
+import { acceptsInput, advanceGameRun, applyGameAction, createGameRun, type GameRun } from '../../src/games/gameplay.js';
 import type { GameId, GameSpec } from '../../src/games/catalog.js';
+import { nextConnectedHost } from './host-election.js';
 
 const Player = schema({ nickname: t.string(), score: t.uint16().default(0), ready: t.boolean().default(false), connected: t.boolean().default(true) });
 type PlayerState = SchemaType<typeof Player>;
@@ -60,7 +61,7 @@ class ArcadeRoom extends Room<{ state: ArcadeRoomState }> {
       if (!this.state.started || !message?.action || !gameActions[this.state.gameId]?.has(message.action)) return;
       const player = this.state.players.get(client.sessionId); const run = this.runs.get(client.sessionId);
       if (!player || !run || !player.connected) return;
-      const now = Date.now(); if (now - (this.lastInputAt.get(client.sessionId) ?? 0) < 120) return;
+      const now = Date.now(); if (!acceptsInput(now, this.lastInputAt.get(client.sessionId) ?? 0)) return;
       this.lastInputAt.set(client.sessionId, now);
       const next = applyGameAction(run, message.action as Parameters<typeof applyGameAction>[1]);
       this.runs.set(client.sessionId, next); player.score = Math.min(65535, next.score);
@@ -82,7 +83,7 @@ class ArcadeRoom extends Room<{ state: ArcadeRoomState }> {
   onReconnect(client: Client) { const player = this.state.players.get(client.sessionId); if (player) player.connected = true; this.broadcast('players', this.playerList()); }
   onLeave(client: { sessionId: string }) {
     this.state.players.delete(client.sessionId); this.lastInputAt.delete(client.sessionId); this.runs.delete(client.sessionId);
-    if (this.hostId === client.sessionId) this.hostId = this.state.players.keys().next().value ?? '';
+    if (this.hostId === client.sessionId) this.hostId = nextConnectedHost(this.state.players.entries());
     this.broadcast('players', this.playerList());
   }
   onDispose() { if (this.countdownTimer) clearInterval(this.countdownTimer); }
